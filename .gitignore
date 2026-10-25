@@ -1,0 +1,11 @@
+.gradle/
+build/
+*.db
+*.db-journal
+state/
+# Real config holds BotFather tokens and the T3 pairing token. Never commit it.
+config.json
+# IntelliJ
+.idea/
+*.iml
+out/
