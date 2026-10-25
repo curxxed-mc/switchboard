@@ -1,0 +1,39 @@
+{
+  "telegram": {
+    "groupId": -1001234567890,
+    "adminUserId": 123456789,
+    "staleAfterSeconds": 300
+  },
+  "t3": {
+    "baseUrl": null,
+    "pairingToken": "paste output of: ~/.t3/bin/t3 pair --label switchboard --scope orchestration:read --scope orchestration:operate",
+    "stateDir": null,
+    "project": "No project",
+    "runtimeMode": "auto-accept-edits",
+    "turnTimeoutMinutes": 30,
+    "contextMessages": 15
+  },
+  "agents": {
+    "claude": {
+      "botToken": "123:ABC-from-BotFather",
+      "instanceId": "claudeAgent",
+      "model": "claude-opus-5-5"
+    },
+    "codex": {
+      "botToken": "456:DEF-from-BotFather",
+      "instanceId": "codex_<instance-id>",
+      "model": "gpt-6.1-sol"
+    },
+    "codex2": {
+      "displayName": "Codex2",
+      "botToken": "012:JKL-from-BotFather",
+      "instanceId": "codex_<second-instance-id>",
+      "model": "gpt-6.1-sol"
+    },
+    "gemini": {
+      "botToken": "789:GHI-from-BotFather",
+      "instanceId": "antigravity",
+      "model": "gemini-3.8-flash-high"
+    }
+  }
+}
