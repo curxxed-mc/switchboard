@@ -26,6 +26,7 @@ Switchboard is a Java 21 relay that connects a Telegram supergroup to local AI c
 
 ## Requirements
 
+- **Linux or macOS.** Developed and tested on Linux. macOS should work, since it uses the same POSIX file permissions and `~/` paths, but hasn't been tested. Native Windows isn't supported: the credential store creates its file with POSIX permissions, which fails on NTFS. On Windows, run both T3 Code and Switchboard inside WSL2 so they share the same `~/.t3` directory.
 - **JDK 21+**
 - **A running T3 Code server** (v0.1.2, orchestration protocol v2)
 - **One Telegram bot per agent** created via `@BotFather`, added to a Telegram **supergroup** with either privacy mode disabled (`/setprivacy` → `Disable`) or admin rights in the group so each bot receives group messages
