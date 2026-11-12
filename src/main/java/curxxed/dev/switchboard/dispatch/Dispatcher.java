@@ -82,6 +82,13 @@ public final class Dispatcher implements EnvelopeHandler, AutoCloseable {
     private final AtomicInteger inFlight = new AtomicInteger();
     private final List<Deferred> deferred = new ArrayList<>(); // guarded by itself
     private final LinkedBlockingQueue<Boolean> wake = new LinkedBlockingQueue<>();
+    /**
+     * Held while {@code /stopall} runs and while the retrier starts each queued hand-off, so a stop
+     * can never land between the retrier taking hand-offs off the queue and starting them. Lock
+     * order: this, then {@link #deferred}.
+     */
+    private final Object stopLock = new Object();
+    private long stops; // guarded by stopLock; bumped by every /stopall
     private final Map<Long, Running> running = new ConcurrentHashMap<>();
     private final Clock clock;
     private final Thread retrier;
@@ -143,12 +150,15 @@ public final class Dispatcher implements EnvelopeHandler, AutoCloseable {
      * drops queued hand-offs, and resets the circuit breaker so nothing in flight can cascade.
      */
     public StopResult stopAll() {
-        int dropped = clearDeferred();
-        breaker.resetAll(); // first, so a turn finishing right now can't start a hand-off
-        List<Running> stopped = running();
-        stopped.forEach(r -> r.future().cancel(true));
-        Log.info("stopall: interrupted " + stopped.size() + " turn(s), dropped " + dropped + " queued hand-off(s)");
-        return new StopResult(stopped, dropped);
+        synchronized (stopLock) {
+            stops++; // hand-offs the retrier already took off the queue are dropped, not started
+            int dropped = clearDeferred();
+            breaker.resetAll(); // first, so a turn finishing right now can't start a hand-off
+            List<Running> stopped = running();
+            stopped.forEach(r -> r.future().cancel(true));
+            Log.info("stopall: interrupted " + stopped.size() + " turn(s), dropped " + dropped + " queued hand-off(s)");
+            return new StopResult(stopped, dropped);
+        }
     }
 
     @Override
@@ -302,6 +312,10 @@ public final class Dispatcher implements EnvelopeHandler, AutoCloseable {
             while (!Thread.currentThread().isInterrupted()) {
                 wake.poll(RETRY_INTERVAL.toMillis(), TimeUnit.MILLISECONDS);
                 wake.clear();
+                long generation;
+                synchronized (stopLock) {
+                    generation = stops; // read before taking the batch, so nothing queued before a stop survives it
+                }
                 List<Deferred> batch;
                 synchronized (deferred) {
                     if (deferred.isEmpty()) continue;
@@ -312,9 +326,16 @@ public final class Dispatcher implements EnvelopeHandler, AutoCloseable {
                     inFlight.incrementAndGet();
                 }
                 try {
-                    for (Deferred d : batch) {
+                    for (int i = 0; i < batch.size(); i++) {
+                        Deferred d = batch.get(i);
                         try {
-                            start(d.turn(), d.since()); // re-queues itself if the agent is still unavailable
+                            synchronized (stopLock) {
+                                if (stops != generation) {
+                                    Log.info("stopall: dropped " + (batch.size() - i) + " hand-off(s) that were being retried");
+                                    break;
+                                }
+                                start(d.turn(), d.since()); // re-queues itself if the agent is still unavailable
+                            }
                         } catch (InterruptedException e) {
                             throw e;
                         } catch (Exception e) {
