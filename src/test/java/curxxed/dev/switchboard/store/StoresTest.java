@@ -78,6 +78,27 @@ class StoresTest {
     }
 
     @Test
+    void leftoverSideFilesAreTightened(@TempDir Path dir) throws Exception {
+        assumeTrue(Files.getFileAttributeView(dir, PosixFileAttributeView.class) != null, "POSIX file system");
+        // What an older version leaves behind after a crash: SQLite only removes -wal and -shm on a clean close.
+        Path file = dir.resolve("relay.db");
+        var readable = PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-r--r--"));
+        for (String suffix : new String[] {"", "-wal", "-shm", "-journal"}) {
+            Files.createFile(dir.resolve("relay.db" + suffix), readable);
+        }
+        Path unrelated = Files.createFile(dir.resolve("notes.txt"), readable);
+
+        Database.restrictToOwner(file);
+
+        for (String suffix : new String[] {"", "-wal", "-shm", "-journal"}) {
+            assertEquals("rw-------", PosixFilePermissions.toString(Files.getPosixFilePermissions(dir.resolve("relay.db" + suffix))),
+                    "relay.db" + suffix);
+        }
+        assertEquals("rw-r--r--", PosixFilePermissions.toString(Files.getPosixFilePermissions(unrelated)),
+                "other files in the state directory are left alone");
+    }
+
+    @Test
     void refusesDatabaseFromNewerBuild(@TempDir Path dir) throws Exception {
         Path file = dir.resolve("relay.db");
         try (Database first = Database.open(file)) {
