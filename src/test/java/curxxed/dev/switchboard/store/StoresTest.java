@@ -7,7 +7,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFileAttributeView;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Clock;
@@ -16,6 +19,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 class StoresTest {
 
@@ -43,6 +47,33 @@ class StoresTest {
         }
         try (Database second = Database.open(file)) {
             assertEquals(version, second.schemaVersion());
+        }
+    }
+
+    @Test
+    void newDatabaseAndItsWalAreOwnerOnly(@TempDir Path dir) throws Exception {
+        assumeTrue(Files.getFileAttributeView(dir, PosixFileAttributeView.class) != null, "POSIX file system");
+        Path file = dir.resolve("relay.db");
+        try (Database opened = Database.open(file)) {
+            assertTrue(opened.schemaVersion() >= 1);
+            assertEquals("rw-------", PosixFilePermissions.toString(Files.getPosixFilePermissions(file)));
+            Path wal = dir.resolve("relay.db-wal");
+            assertTrue(Files.exists(wal), "migrations write through the WAL");
+            assertEquals("rw-------", PosixFilePermissions.toString(Files.getPosixFilePermissions(wal)));
+        }
+    }
+
+    @Test
+    void existingReadableDatabaseIsTightened(@TempDir Path dir) throws Exception {
+        assumeTrue(Files.getFileAttributeView(dir, PosixFileAttributeView.class) != null, "POSIX file system");
+        Path file = dir.resolve("relay.db");
+        try (Database first = Database.open(file)) {
+            assertTrue(first.schemaVersion() >= 1);
+        }
+        Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-r--r--"));
+        try (Database second = Database.open(file)) {
+            assertTrue(second.schemaVersion() >= 1);
+            assertEquals("rw-------", PosixFilePermissions.toString(Files.getPosixFilePermissions(file)));
         }
     }
 

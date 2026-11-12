@@ -3,11 +3,15 @@ package curxxed.dev.switchboard.store;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFileAttributeView;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
@@ -146,7 +150,31 @@ public final class Database implements AutoCloseable {
     public static Database open(Path file) throws IOException, SQLException {
         Path parent = file.toAbsolutePath().getParent();
         if (parent != null) Files.createDirectories(parent);
+        restrictToOwner(file);
         return openUrl("jdbc:sqlite:" + file);
+    }
+
+    static final Set<PosixFilePermission> OWNER_ONLY = PosixFilePermissions.fromString("rw-------");
+
+    /**
+     * The database holds the group's message history, so only its owner may read it. SQLite gives
+     * its {@code -wal} and {@code -shm} files the database file's mode, so creating the file as
+     * owner-only covers them too; existing files from older versions are tightened in place.
+     * Skipped on file systems without POSIX permissions.
+     */
+    static void restrictToOwner(Path file) throws IOException {
+        if (Files.getFileAttributeView(file.toAbsolutePath().getParent(), PosixFileAttributeView.class) == null) return;
+        if (Files.notExists(file)) {
+            try {
+                Files.createFile(file, PosixFilePermissions.asFileAttribute(OWNER_ONLY));
+            } catch (java.nio.file.FileAlreadyExistsException e) {
+                // created concurrently; tightened below
+            }
+        }
+        for (String suffix : new String[] {"", "-wal", "-shm", "-journal"}) {
+            Path p = file.resolveSibling(file.getFileName() + suffix);
+            if (Files.exists(p)) Files.setPosixFilePermissions(p, OWNER_ONLY);
+        }
     }
 
     /** Private in-memory database, for tests. */
